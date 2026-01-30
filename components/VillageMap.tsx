@@ -8,7 +8,11 @@ type PickedVillage = {
   id: string; // `${ADMIT_ID}-${ADMIV_ID}`
   district: string; // ADMIT
   village: string; // T_NAME
+  zone: "蛋黃" | "蛋白" | "蛋殼";
 };
+
+const yolk = ["板橋區", "三重區", "蘆洲區", "中和區", "永和區", "新莊區"];
+const white = ["新店區", "淡水區", "汐止區", "土城區", "樹林區", "林口區", "三峽區", "鶯歌區", "五股區", "泰山區"];
 
 export default function VillageMap() {
   const mapRef = useRef<Map | null>(null);
@@ -20,18 +24,19 @@ export default function VillageMap() {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
+      // 純色背景：不顯示底圖台灣圖樣
       style: {
         version: 8,
         sources: {},
         layers: [
-            {
+          {
             id: "bg",
             type: "background",
-            paint: { "background-color": "#f3f4f6" }, // 灰底，可改色
-            },
+            paint: { "background-color": "#f3f4f6" },
+          },
         ],
       } as any,
-      center: [121.48, 25.02], // 新北附近
+      center: [121.48, 25.02],
       zoom: 9.5,
     });
 
@@ -43,88 +48,26 @@ export default function VillageMap() {
       if (!res.ok) throw new Error("Failed to load /ntpc_villages.geojson");
       const geojson = await res.json();
 
-      // Source
       map.addSource("villages", {
         type: "geojson",
         data: geojson,
       });
 
-      /**
-       * 區別顏色：依 properties.ADMIT（區名）
-       * 你可以自行調色或補齊所有區
-       */
-      const districtColorExpr: any = [
-        "match",
-        ["get", "ADMIT"],
-        "板橋區",
-        "#fdba74",
-        "新莊區",
-        "#c4b5fd",
-        "三重區",
-        "#fca5a5",
-        "新店區",
-        "#93c5fd",
-        "淡水區",
-        "#86efac",
-        "汐止區",
-        "#fcd34d",
-        "中和區",
-        "#a7f3d0",
-        "永和區",
-        "#fecaca",
-        "土城區",
-        "#bfdbfe",
-        "樹林區",
-        "#ddd6fe",
-        "三峽區",
-        "#bbf7d0",
-        "鶯歌區",
-        "#fed7aa",
-        "蘆洲區",
-        "#fbcfe8",
-        "五股區",
-        "#bae6fd",
-        "泰山區",
-        "#fde68a",
-        "林口區",
-        "#99f6e4",
-        "八里區",
-        "#fecdd3",
-        "金山區",
-        "#d9f99d",
-        "萬里區",
-        "#c7d2fe",
-        "石門區",
-        "#e9d5ff",
-        "三芝區",
-        "#fef9c3",
-        "瑞芳區",
-        "#a5b4fc",
-        "貢寮區",
-        "#a7f3d0",
-        "雙溪區",
-        "#fdba74",
-        "平溪區",
-        "#fca5a5",
-        "坪林區",
-        "#93c5fd",
-        "烏來區",
-        "#86efac",
-        "深坑區",
-        "#fcd34d",
-        "石碇區",
-        "#ddd6fe",
-        /* default */ "#c7d2fe",
-      ];
-
-      // 1) 色塊
+      // 1) 策略色塊（依區分類：蛋黃/蛋白/蛋殼）
       map.addLayer({
         id: "village-fill",
         type: "fill",
         source: "villages",
         paint: {
-          "fill-color": districtColorExpr,
-          "fill-opacity": 0.35,
+          "fill-color": [
+            "case",
+            ["in", ["get", "ADMIT"], ["literal", yolk]],
+            "#28c8c8", // 蛋黃：紅
+            ["in", ["get", "ADMIT"], ["literal", white]],
+            "#ffffce", // 蛋白：藍
+            "#9ca3af", // 蛋殼：灰
+          ],
+          "fill-opacity": 0.55,
         },
       });
 
@@ -138,7 +81,7 @@ export default function VillageMap() {
           "fill-opacity": [
             "case",
             ["boolean", ["feature-state", "hover"], false],
-            0.2,
+            0.22,
             0,
           ],
         },
@@ -163,7 +106,7 @@ export default function VillageMap() {
         paint: {
           "line-width": 1,
           "line-color": "#111827",
-          "line-opacity": 0.8,
+          "line-opacity": 0.7,
         },
       });
 
@@ -196,7 +139,6 @@ export default function VillageMap() {
 
       map.on("mouseleave", "village-fill-hit", () => {
         map.getCanvas().style.cursor = "";
-
         if (hoveredId !== undefined) {
           map.setFeatureState({ source: "villages", id: hoveredId }, { hover: false });
         }
@@ -216,12 +158,11 @@ export default function VillageMap() {
         if (hoveredId !== undefined && hoveredId !== fid) {
           map.setFeatureState({ source: "villages", id: hoveredId }, { hover: false });
         }
-
         hoveredId = fid;
         map.setFeatureState({ source: "villages", id: hoveredId }, { hover: true });
       });
 
-      // 點擊：維持你原本的小卡
+      // 點擊：顯示小卡（含蛋黃/蛋白/蛋殼）
       map.on("click", "village-fill-hit", (e) => {
         const f = e.features?.[0];
         if (!f) return;
@@ -236,7 +177,13 @@ export default function VillageMap() {
         if (!district || !village || !admitId || !admivId) return;
 
         const id = `${admitId}-${admivId}`;
-        setPicked({ id, district, village });
+        const zone: PickedVillage["zone"] = yolk.includes(district)
+          ? "蛋黃"
+          : white.includes(district)
+          ? "蛋白"
+          : "蛋殼";
+
+        setPicked({ id, district, village, zone });
       });
     });
 
@@ -250,13 +197,32 @@ export default function VillageMap() {
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
 
+      {/* Legend */}
+      <div className="absolute left-10 top-4 rounded-2xl bg-white/95 p-3 shadow text-sm text-gray-900">
+        <div className="font-semibold">分區圖例</div>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#28c8c8" }} />
+          <span>蛋黃：板橋/三蘆/中永和/新莊</span>
+        </div>
+        <div className="mt-1 flex items-center gap-2">
+          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#ffffce" }} />
+          <span>蛋白：新店/淡水/汐止/土城/樹林/林口/三峽/鶯歌/五股/泰山</span>
+        </div>
+        <div className="mt-1 flex items-center gap-2">
+          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#9ca3af" }} />
+          <span>蛋殼：其他</span>
+        </div>
+      </div>
+
+      {/* Picked card */}
       {picked && (
-        <div className="absolute right-4 top-4 w-[340px] rounded-2xl bg-white/95 p-4 shadow-lg text-gray-900">
+        <div className="absolute right-4 top-4 w-[360px] rounded-2xl bg-white/95 p-4 shadow-lg text-gray-900">
           <div className="text-lg font-semibold text-gray-900">
             {picked.district}｜{picked.village}
           </div>
 
           <div className="mt-1 text-sm text-gray-900">Key：{picked.id}</div>
+          <div className="mt-1 text-sm text-gray-900">分區：{picked.zone}</div>
 
           <div className="mt-4 flex gap-2">
             <Link
