@@ -178,10 +178,10 @@ export default function VillageMap() {
 
         const id = `${admitId}-${admivId}`;
         const zone: PickedVillage["zone"] = yolk.includes(district)
-          ? "蛋黃"
+          ? "一區"
           : white.includes(district)
-          ? "蛋白"
-          : "蛋殼";
+          ? "二區"
+          : "三區";
 
         setPicked({ id, district, village, zone });
       });
