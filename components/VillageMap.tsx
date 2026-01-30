@@ -202,15 +202,15 @@ export default function VillageMap() {
         <div className="font-semibold">分區圖例</div>
         <div className="mt-2 flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#28c8c8" }} />
-          <span>蛋黃：板橋/三蘆/中永和/新莊</span>
+          <span>一區：板橋/三蘆/中永和/新莊</span>
         </div>
         <div className="mt-1 flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#ffffce" }} />
-          <span>蛋白：新店/淡水/汐止/土城/樹林/林口/三峽/鶯歌/五股/泰山</span>
+          <span>二區：新店/淡水/汐止/土城/樹林/林口/三峽/鶯歌/五股/泰山</span>
         </div>
         <div className="mt-1 flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#9ca3af" }} />
-          <span>蛋殼：其他</span>
+          <span>三區：其他</span>
         </div>
       </div>
 
