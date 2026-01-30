@@ -8,7 +8,7 @@ type PickedVillage = {
   id: string; // `${ADMIT_ID}-${ADMIV_ID}`
   district: string; // ADMIT
   village: string; // T_NAME
-  zone: "蛋黃" | "蛋白" | "蛋殼";
+  zone: "一區" | "二區" | "三區";
 };
 
 const yolk = ["板橋區", "三重區", "蘆洲區", "中和區", "永和區", "新莊區"];
