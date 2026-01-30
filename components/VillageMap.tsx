@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl, { Map } from "maplibre-gl";
 import Link from "next/link";
+import * as turf from "@turf/turf";
 
 type PickedVillage = {
   id: string; // `${ADMIT_ID}-${ADMIV_ID}`
@@ -11,8 +12,19 @@ type PickedVillage = {
   zone: "一區" | "二區" | "三區";
 };
 
-const yolk = ["板橋區", "三重區", "蘆洲區", "中和區", "永和區", "新莊區"];
-const white = ["新店區", "淡水區", "汐止區", "土城區", "樹林區", "林口區", "三峽區", "鶯歌區", "五股區", "泰山區"];
+const zone1 = ["板橋區", "三重區", "蘆洲區", "中和區", "永和區", "新莊區"];
+const zone2 = ["新店區", "淡水區", "汐止區", "土城區", "樹林區", "林口區", "三峽區", "鶯歌區", "五股區", "泰山區"];
+
+function getZone(district: string): PickedVillage["zone"] {
+  if (zone1.includes(district)) return "一區";
+  if (zone2.includes(district)) return "二區";
+  return "三區";
+}
+
+// 你指定的新顏色
+const ZONE1_COLOR = "#28c8c8"; // 一區
+const ZONE2_COLOR = "#fde68a"; // 二區（淺黃色）
+const ZONE3_COLOR = "#e5e7eb"; // 三區（淺灰色）
 
 export default function VillageMap() {
   const mapRef = useRef<Map | null>(null);
@@ -24,7 +36,6 @@ export default function VillageMap() {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      // 純色背景：不顯示底圖台灣圖樣
       style: {
         version: 8,
         sources: {},
@@ -46,14 +57,41 @@ export default function VillageMap() {
     map.on("load", async () => {
       const res = await fetch("/ntpc_villages.geojson");
       if (!res.ok) throw new Error("Failed to load /ntpc_villages.geojson");
-      const geojson = await res.json();
+      const villagesGeo = await res.json();
 
       map.addSource("villages", {
         type: "geojson",
-        data: geojson,
+        data: villagesGeo,
+        generateId: false,
       });
 
-      // 1) 策略色塊（依區分類：蛋黃/蛋白/蛋殼）
+      // districts：flatten -> dissolve(ADMIT)
+      const flattened = turf.flatten(villagesGeo as any) as any;
+
+      let dissolved: any;
+      try {
+        dissolved = turf.dissolve(flattened, { propertyName: "ADMIT" } as any);
+      } catch {
+        dissolved = turf.dissolve(flattened, { property: "ADMIT" } as any);
+      }
+
+      dissolved.features = (dissolved.features ?? []).map((f: any) => {
+        const admit = String(f?.properties?.ADMIT ?? "");
+        return {
+          ...f,
+          properties: {
+            ...(f.properties ?? {}),
+            ZONE: getZone(admit),
+          },
+        };
+      });
+
+      map.addSource("districts", {
+        type: "geojson",
+        data: dissolved,
+      });
+
+      // 里色塊（依一區/二區/三區）
       map.addLayer({
         id: "village-fill",
         type: "fill",
@@ -61,44 +99,36 @@ export default function VillageMap() {
         paint: {
           "fill-color": [
             "case",
-            ["in", ["get", "ADMIT"], ["literal", yolk]],
-            "#28c8c8", // 蛋黃：紅
-            ["in", ["get", "ADMIT"], ["literal", white]],
-            "#ffffce", // 蛋白：藍
-            "#9ca3af", // 蛋殼：灰
+            ["in", ["get", "ADMIT"], ["literal", zone1]],
+            ZONE1_COLOR,
+            ["in", ["get", "ADMIT"], ["literal", zone2]],
+            ZONE2_COLOR,
+            ZONE3_COLOR,
           ],
-          "fill-opacity": 0.55,
+          "fill-opacity": 0.65,
         },
       });
 
-      // 2) Hover 高亮（feature-state）
+      // Hover 高亮
       map.addLayer({
         id: "village-hover",
         type: "fill",
         source: "villages",
         paint: {
           "fill-color": "#111827",
-          "fill-opacity": [
-            "case",
-            ["boolean", ["feature-state", "hover"], false],
-            0.22,
-            0,
-          ],
+          "fill-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 0.18, 0],
         },
       });
 
-      // 3) 透明 hit layer（方便點擊）
+      // hit layer
       map.addLayer({
         id: "village-fill-hit",
         type: "fill",
         source: "villages",
-        paint: {
-          "fill-color": "#000000",
-          "fill-opacity": 0.001,
-        },
+        paint: { "fill-color": "#000000", "fill-opacity": 0.001 },
       });
 
-      // 4) 里界線
+      // 里界線（細）
       map.addLayer({
         id: "village-boundary",
         type: "line",
@@ -106,18 +136,53 @@ export default function VillageMap() {
         paint: {
           "line-width": 1,
           "line-color": "#111827",
-          "line-opacity": 0.7,
+          "line-opacity": 0.35,
         },
       });
 
-      // 5) 里名標籤（縮放後才顯示，避免擠在一起）
+      // 區外框（粗黑）
+      map.addLayer({
+        id: "district-outline",
+        type: "line",
+        source: "districts",
+        paint: {
+          "line-color": "#000000",
+          "line-width": 3,
+          "line-opacity": 0.9,
+        },
+      });
+
+      // ✅ 區名標籤：板橋區不顯示「一區」，其他區顯示「區名 + (一區/二區/三區)」
+      map.addLayer({
+        id: "district-label",
+        type: "symbol",
+        source: "districts",
+        layout: {
+          "symbol-placement": "point",
+          "text-field": ["get", "ADMIT"],
+          // 字更大
+          "text-size": ["interpolate", ["linear"], ["zoom"], 9, 16, 11, 20, 13, 24],
+          "text-allow-overlap": false,
+          "text-ignore-placement": false,
+          "text-padding": 2,
+        },
+        paint: {
+          "text-color": "#111111",
+          "text-halo-color": "rgba(255,255,255,0.85)",
+          "text-halo-width": 7,
+          "text-halo-blur": 1,
+        },
+        minzoom: 9.2,
+      });
+
+      // 里名標籤
       map.addLayer({
         id: "village-label",
         type: "symbol",
         source: "villages",
         layout: {
           "text-field": ["coalesce", ["get", "T_NAME"], ["get", "ADMIV"]],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 10, 10, 12, 12, 14, 14],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 13, 12, 15, 14],
           "text-allow-overlap": false,
           "text-ignore-placement": false,
         },
@@ -130,7 +195,7 @@ export default function VillageMap() {
         minzoom: 11,
       });
 
-      // Hover 狀態管理：id 不能是 null
+      // Hover state（id 不可為 null）
       let hoveredId: string | number | undefined = undefined;
 
       map.on("mouseenter", "village-fill-hit", () => {
@@ -162,7 +227,6 @@ export default function VillageMap() {
         map.setFeatureState({ source: "villages", id: hoveredId }, { hover: true });
       });
 
-      // 點擊：顯示小卡（含蛋黃/蛋白/蛋殼）
       map.on("click", "village-fill-hit", (e) => {
         const f = e.features?.[0];
         if (!f) return;
@@ -177,12 +241,7 @@ export default function VillageMap() {
         if (!district || !village || !admitId || !admivId) return;
 
         const id = `${admitId}-${admivId}`;
-        const zone: PickedVillage["zone"] = yolk.includes(district)
-          ? "一區"
-          : white.includes(district)
-          ? "二區"
-          : "三區";
-
+        const zone = getZone(district);
         setPicked({ id, district, village, zone });
       });
     });
@@ -198,19 +257,19 @@ export default function VillageMap() {
       <div ref={containerRef} className="h-full w-full" />
 
       {/* Legend */}
-      <div className="absolute left-10 top-4 rounded-2xl bg-white/95 p-3 shadow text-sm text-gray-900">
+      <div className="absolute left-15 top-4 rounded-2xl bg-white/95 p-3 shadow text-sm text-gray-900">
         <div className="font-semibold">分區圖例</div>
         <div className="mt-2 flex items-center gap-2">
-          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#28c8c8" }} />
-          <span>一區：板橋/三蘆/中永和/新莊</span>
+          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: ZONE1_COLOR }} />
+          <span>一區</span>
         </div>
         <div className="mt-1 flex items-center gap-2">
-          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#ffffce" }} />
-          <span>二區：新店/淡水/汐止/土城/樹林/林口/三峽/鶯歌/五股/泰山</span>
+          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: ZONE2_COLOR }} />
+          <span>二區</span>
         </div>
         <div className="mt-1 flex items-center gap-2">
-          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#9ca3af" }} />
-          <span>三區：其他</span>
+          <span className="inline-block h-3 w-3 rounded-sm" style={{ background: ZONE3_COLOR }} />
+          <span>三區</span>
         </div>
       </div>
 
@@ -232,10 +291,7 @@ export default function VillageMap() {
               查看詳細
             </Link>
 
-            <button
-              onClick={() => setPicked(null)}
-              className="rounded-xl border px-3 py-2 text-sm"
-            >
+            <button onClick={() => setPicked(null)} className="rounded-xl border px-3 py-2 text-sm">
               關閉
             </button>
           </div>
